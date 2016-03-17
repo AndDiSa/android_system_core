@@ -141,19 +141,60 @@ static void restart_processes()
             });
 }
 
-void handle_control_message(const std::string& msg, const std::string& name) {
-    Service* svc = ServiceManager::GetInstance().FindServiceByName(name);
-    if (svc == nullptr) {
-        ERROR("no such service '%s'\n", name.c_str());
-        return;
+static void msg_start(const std::string& name)
+{
+    Service* svc = nullptr;
+    std::vector<std::string> vargs;
+
+    size_t colon_pos = name.find(':');
+    if (colon_pos == std::string::npos) {
+        svc = ServiceManager::GetInstance().FindServiceByName(name);
+    } else {
+        std::string service_name(name.substr(0, colon_pos));
+        std::string args(name.substr(colon_pos + 1));
+        vargs = android::base::Split(args, " ");
+
+        svc = ServiceManager::GetInstance().FindServiceByName(service_name);
     }
 
-    if (msg == "start") {
+    if (svc) {
         svc->Start();
-    } else if (msg == "stop") {
+    } else {
+        ERROR("no such service '%s'\n", name.c_str());
+    }
+}
+
+static void msg_stop(const std::string& name)
+{
+    Service* svc = ServiceManager::GetInstance().FindServiceByName(name);
+
+    if (svc) {
         svc->Stop();
-    } else if (msg == "restart") {
+    } else {
+        ERROR("no such service '%s'\n", name.c_str());
+    }
+}
+
+static void msg_restart(const std::string& name)
+{
+    Service* svc = ServiceManager::GetInstance().FindServiceByName(name);
+
+    if (svc) {
         svc->Restart();
+    } else {
+        ERROR("no such service '%s'\n", name.c_str());
+    }
+}
+
+void handle_control_message(const std::string& msg, const std::string& arg)
+{
+    if (msg == "start") {
+        msg_start(arg);
+    } else if (msg == "stop") {
+    } else if (msg == "stop") {
+        msg_stop(arg);
+    } else if (msg == "restart") {
+        msg_restart(arg);
     } else {
         ERROR("unknown control msg '%s'\n", msg.c_str());
     }
@@ -296,6 +337,50 @@ static bool __attribute__((unused)) set_mmap_rnd_bits_min(int start, int min, bo
     return (start >= min);
 }
 
+/*
+ * Set /proc/sys/vm/mmap_rnd_bits and potentially
+ * /proc/sys/vm/mmap_rnd_compat_bits to the maximum supported values.
+ * Returns -1 if unable to set these to an acceptable value.  Apply
+ * upstream patch-sets https://lkml.org/lkml/2015/12/21/337 and
+ * https://lkml.org/lkml/2016/2/4/831 to enable this.
+ */
+static int set_mmap_rnd_bits_action(const std::vector<std::string>& args)
+{
+    int ret = -1;
+
+    /* values are arch-dependent */
+#if defined(__aarch64__)
+    /* arm64 supports 18 - 33 bits depending on pagesize and VA_SIZE */
+    if (set_mmap_rnd_bits_min(33, 24, false)
+            && set_mmap_rnd_bits_min(16, 16, true)) {
+        ret = 0;
+    }
+#elif defined(__x86__64__)
+    /* x86_64 supports 28 - 32 bits */
+    if (set_mmap_rnd_bits_min(32, 32, false)
+            && set_mmap_rnd_bits_min(16, 16, true)) {
+        ret = 0;
+    }
+#elif defined(__arm__) || defined(__i386__)
+    /* check to see if we're running on 64-bit kernel */
+    bool h64 = !access(MMAP_RND_COMPAT_PATH, F_OK);
+    /* supported 32-bit architecture must have 16 bits set */
+    if (set_mmap_rnd_bits_min(16, 16, h64)) {
+        ret = 0;
+    }
+#elif defined(__mips__) || defined(__mips64__)
+    // TODO: add mips support b/27788820
+    ret = 0;
+#else
+    ERROR("Unknown architecture\n");
+#endif
+    if (ret == -1) {
+        ERROR("Unable to set adequate mmap entropy value!\n");
+        security_failure();
+    }
+    return ret;
+}
+
 static int keychord_init_action(const std::vector<std::string>& args)
 {
     keychord_init();
@@ -429,17 +514,11 @@ static void process_kernel_cmdline() {
     if (qemu[0]) import_kernel_cmdline(true, import_kernel_nv);
 }
 
-static int property_enable_triggers_action(const std::vector<std::string>& args)
-{
-    /* Enable property triggers. */
-    property_triggers_enabled = 1;
-    return 0;
-}
-
 static int queue_property_triggers_action(const std::vector<std::string>& args)
 {
-    ActionManager::GetInstance().QueueBuiltinAction(property_enable_triggers_action, "enable_property_trigger");
     ActionManager::GetInstance().QueueAllPropertyTriggers();
+    /* enable property triggers */
+    property_triggers_enabled = 1;
     return 0;
 }
 
@@ -652,7 +731,7 @@ int main(int argc, char** argv) {
     am.QueueBuiltinAction(wait_for_coldboot_done_action, "wait_for_coldboot_done");
     // ... so that we can start queuing up actions that require stuff from /dev.
     am.QueueBuiltinAction(mix_hwrng_into_linux_rng_action, "mix_hwrng_into_linux_rng");
-    // am.QueueBuiltinAction(set_mmap_rnd_bits_action, "set_mmap_rnd_bits");
+    am.QueueBuiltinAction(set_mmap_rnd_bits_action, "set_mmap_rnd_bits");
     am.QueueBuiltinAction(keychord_init_action, "keychord_init");
     am.QueueBuiltinAction(console_init_action, "console_init");
 
