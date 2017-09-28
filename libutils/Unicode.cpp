@@ -18,6 +18,7 @@
 #include <utils/Unicode.h>
 
 #include <stddef.h>
+#include <limits.h>
 
 #if defined(_WIN32)
 # undef  nhtol
