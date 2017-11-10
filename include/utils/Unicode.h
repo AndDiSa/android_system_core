@@ -22,6 +22,10 @@
 
 extern "C" {
 
+#ifndef SSIZE_MAX
+#define SSIZE_MAX ((size_t)SIZE_MAX/2)
+#endif
+
 // Standard string functions on char16_t strings.
 int strcmp16(const char16_t *, const char16_t *);
 int strncmp16(const char16_t *s1, const char16_t *s2, size_t n);
