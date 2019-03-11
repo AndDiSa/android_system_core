@@ -20,9 +20,10 @@
 struct autosuspend_ops {
     int (*enable)(void);
     int (*disable)(void);
+    int (*force_suspend)(int timeout_ms);
+    void (*set_wakeup_callback)(void (*func)(bool success));
 };
 
-struct autosuspend_ops *autosuspend_autosleep_init(void);
 struct autosuspend_ops *autosuspend_earlysuspend_init(void);
 struct autosuspend_ops *autosuspend_wakeup_count_init(void);
 
