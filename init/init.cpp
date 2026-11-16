@@ -191,7 +191,6 @@ void handle_control_message(const std::string& msg, const std::string& arg)
     if (msg == "start") {
         msg_start(arg);
     } else if (msg == "stop") {
-    } else if (msg == "stop") {
         msg_stop(arg);
     } else if (msg == "restart") {
         msg_restart(arg);
